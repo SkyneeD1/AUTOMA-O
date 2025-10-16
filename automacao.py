@@ -80,7 +80,6 @@ COL_TIPO_ACAO            = "Tipo de Ação"
 COL_VALOR_CAUSA          = "Valor da Causa"
 COL_ADV_RESP             = "Advogado Responsável"
 COL_GESTOR_JURIDICO      = "Gestor Jurídico"
-COL_ESCRITORIO_EXTERNO   = "Escritório Externo"
 COL_TIPO_DOC             = "Tipo de Documento"
 
 
@@ -802,8 +801,6 @@ try:
         valor_causa     = to_amount_str(row.get(COL_VALOR_CAUSA, ""))
         adv_resp        = safe_text(row.get(COL_ADV_RESP, ""))
         gestor_juridico = safe_text(row.get(COL_GESTOR_JURIDICO, ""))
-        escritorio_ext  = safe_text(row.get(COL_ESCRITORIO_EXTERNO, ""))
-
         # DATAS normalizadas (robustas)
         data_distrib    = as_ddmmyyyy(row.get(COL_DATA_DISTR, ""))
         data_receb      = as_ddmmyyyy(row.get(COL_DATA_CITACAO, ""))
@@ -1008,10 +1005,6 @@ try:
                 )
                 if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
                     print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
-
-            # Escritório Externo (campo dedicado)
-            if escritorio_ext and not preencher_autocomplete_por_rotulo("Escritório Externo", escritorio_ext):
-                print("⚠️ Campo 'Escritório Externo' não foi atualizado automaticamente.")
 
             # UPLOAD PDF
             if not os.path.exists(pdf_path):
