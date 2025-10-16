@@ -523,6 +523,73 @@ def selecionar_gestor_juridico(valor: str, timeout=WAIT_MEDIUM) -> bool:
         return True
     return selecionar_autocomplete_primefaces_por_id(input_id, valor, timeout)
 
+
+def selecionar_autocomplete_primefaces_por_id(
+    input_id: str, valor: str, timeout=WAIT_MEDIUM
+) -> bool:
+    if not valor:
+        return True
+
+    base_id = input_id.rsplit("_input", 1)[0]
+    panel_id = f"{base_id}_panel"
+    hidden_id = f"{base_id}_hinput"
+    valor_lower = valor.strip().lower()
+
+    def _selecionar():
+        campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
+        campo.clear()
+        time.sleep(0.15)
+        campo.send_keys(valor)
+
+        panel = WebDriverWait(driver, timeout).until(
+            EC.visibility_of_element_located((By.ID, panel_id))
+        )
+        WebDriverWait(driver, timeout).until(
+            lambda d: panel.find_elements(
+                By.CSS_SELECTOR, "li.ui-autocomplete-item:not(.ui-state-disabled)"
+            )
+        )
+        opcoes = panel.find_elements(
+            By.CSS_SELECTOR, "li.ui-autocomplete-item:not(.ui-state-disabled)"
+        )
+        alvo = None
+        for opcao in opcoes:
+            rotulo = (
+                (opcao.get_attribute("data-item-label") or opcao.text or "")
+                .strip()
+            )
+            if rotulo.lower() == valor_lower:
+                alvo = opcao
+                break
+        if not alvo:
+            alvo = opcoes[0]
+        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", alvo)
+        driver.execute_script("arguments[0].click();", alvo)
+        time.sleep(0.4)
+
+        try:
+            hidden = driver.find_element(By.ID, hidden_id)
+        except Exception:
+            hidden = None
+
+        if hidden and not (hidden.get_attribute("value") or "").strip():
+            raise Exception("Seleção não refletiu no campo oculto.")
+
+    return bool(
+        attempt_twice(f"Selecionar autocomplete {input_id} com {valor}", _selecionar)
+    )
+
+
+def selecionar_gestor_juridico(valor: str, timeout=WAIT_MEDIUM) -> bool:
+    input_id = (
+        "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
+        "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
+    )
+    if not valor:
+        return True
+    return selecionar_autocomplete_primefaces_por_id(input_id, valor, timeout)
+
 def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
     try:
         wb = load_workbook(excel_path)
