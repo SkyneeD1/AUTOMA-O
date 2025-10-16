@@ -30,7 +30,6 @@ from selenium.webdriver.chrome.service import Service
 # =====================
 # TYPE HINTS (opcionais)
 # =====================
-from typing import Callable, Optional
 
 
 from openpyxl import load_workbook
@@ -77,8 +76,6 @@ COL_FASE                 = "Fase"
 COL_JUIZ                 = "Juiz"
 COL_CLIENTE_EMPRESA      = "Empresa e Forma de participação"
 COL_CPF_PARTE_CONTR      = "CPF DA PARTE CONTRARIA"
-COL_EMPREGADORA          = "Empregadora"
-COL_TIPO_EMPREGADO       = "Tipo Empregado"
 COL_ADV_CONTR            = "Advogado da Parte Contrária"
 COL_DATA_DISTR           = "Data de Distribuição"
 COL_DATA_CITACAO         = "Data de Citação"
@@ -235,25 +232,6 @@ def tentar_selecionar_primeiro_item_autocomplete(painel_id: str):
         return False
 
 
-def wait_element_by_id_suffix(
-    suffix: str,
-    tag: str = "*",
-    timeout: int = WAIT_LONG,
-    condition: Optional[Callable] = None,
-):
-    """Localiza um elemento usando o final do seu ID (suffix).
-
-    Útil para componentes PrimeFaces com IDs dinâmicos que mudam entre telas
-    (ex.: j_id_4c_* x j_id_4g_*). Permite informar o *tag* para restringir a busca
-    e uma *condition* (ex.: EC.element_to_be_clickable) quando necessário.
-    """
-
-    selector = f"{tag}[id$='{suffix}']"
-    locator = (By.CSS_SELECTOR, selector)
-    expected = condition(locator) if condition else EC.presence_of_element_located(locator)
-    return WebDriverWait(driver, timeout).until(expected)
-
-
 
 
 def attempt_twice(action_desc, func, *args, **kwargs):
@@ -356,25 +334,11 @@ def marcar_erro(idx, etapa, err):
     rows_to_color_yellow.add(idx)
 
 
-def esperar_texto_em_tabela_outras_partes(texto: str, timeout=WAIT_MEDIUM) -> bool:
-    if not texto:
-        return False
-    literal = _xpath_literal(texto.strip())
-    xpath = (
-        "//table[contains(@id,'outrasParte') and contains(@class,'ui-datatable')]"
-        f"//span[contains(normalize-space(.), {literal})]"
-    )
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.XPATH, xpath))
-        )
-        return True
-    except Exception as e:
-        print(f"⚠️ Não encontrei '{texto}' na lista de Outras Partes: {e}")
-        return False
-
-
-def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
+def preencher_autocomplete_por_rotulo(
+    rotulo: str,
+    valor: str,
+    tempo_dropdown: float = 0.9,
+) -> bool:
     if not valor:
         return True
     literal = _xpath_literal(rotulo)
@@ -414,15 +378,25 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
                 return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
-        campo.send_keys(Keys.ENTER)
+        try:
+            campo.send_keys(Keys.ENTER)
+        except Exception:
+            pass
         time.sleep(0.4)
 
-    if attempt_twice(f"Preencher '{rotulo}' com {valor}", _preencher):
+    if attempt_twice(
+        f"Preencher '{rotulo}' com {valor}",
+        _preencher,
+    ):
         return True
     return False
 
 
-def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
+def preencher_autocomplete_por_id(
+    input_id: str,
+    valor: str,
+    tempo_dropdown: float = 0.9,
+) -> bool:
     if not valor:
         return True
     painel_id = ""
@@ -456,10 +430,16 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
                 return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
-        campo.send_keys(Keys.ENTER)
+        try:
+            campo.send_keys(Keys.ENTER)
+        except Exception:
+            pass
         time.sleep(0.4)
 
-    if attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher):
+    if attempt_twice(
+        f"Preencher autocomplete {input_id} com {valor}",
+        _preencher,
+    ):
         return True
     return False
 
@@ -709,8 +689,6 @@ try:
         juiz_nome       = safe_text(row.get(COL_JUIZ, ""))
         cliente_empresa = safe_text(row.get(COL_CLIENTE_EMPRESA, ""))
         cpf_cnpj_contr  = safe_text(row.get(COL_CPF_PARTE_CONTR, ""))
-        empresa_nivel1  = safe_text(row.get(COL_EMPREGADORA, ""))
-        tipo_parte      = safe_text(row.get(COL_TIPO_EMPREGADO, ""))
         advogado_contr  = safe_text(row.get(COL_ADV_CONTR, ""))
         tipo_processo   = safe_text(row.get(COL_TIPO_ACAO, ""))
         valor_causa     = to_amount_str(row.get(COL_VALOR_CAUSA, ""))
@@ -802,138 +780,6 @@ try:
                 if not attempt_twice("Incluir Parte Contrária (Modal c/ iframe)", incluir_parte_contraria_modal_js, cpf_cnpj_contr):
                     raise Exception("Falha ao incluir parte contrária via modal.")
 
-            # =========================
-            # ✅ INCLUSÃO DE OUTRAS RECLAMADAS (1ª → 7ª RECLAMADA)
-            # =========================
-            colunas_reclamadas = [
-                "1ª Reclamada", "2ª Reclamada", "3ª Reclamada",
-                "4ª Reclamada", "5ª Reclamada", "6ª Reclamada", "7ª Reclamada"
-            ]
-
-            reclamadas_nomes = [safe_text(row.get(col, "")) for col in colunas_reclamadas]
-
-            for parte_nome in reclamadas_nomes:
-                if not parte_nome or parte_nome.strip() == "":
-                    continue  # Se célula vazia, apenas passa pra próxima
-
-                print(f"➕ Adicionando reclamada adicional: {parte_nome}")
-
-                try:
-                    # 1. AUTOCOMPLETE - DIGITAR NOME E SELECIONAR NO DROPDOWN
-                    def _preencher_autocomplete_parte():
-                        inp = wait_element_by_id_suffix(
-                            ":autocompleteOutraParte_input",
-                            tag="input",
-                            condition=EC.element_to_be_clickable,
-                        )
-                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", inp)
-                        inp.click()
-                        time.sleep(0.15)
-                        inp.send_keys(Keys.CONTROL, "a")
-                        inp.send_keys(Keys.BACKSPACE)
-                        time.sleep(0.1)
-                        inp.send_keys(parte_nome)
-
-                        painel_id = inp.get_attribute("aria-controls") or ""
-                        if not painel_id:
-                            raise Exception("Autocomplete sem aria-controls (painel não identificado).")
-
-                        panel = WebDriverWait(driver, WAIT_MEDIUM).until(
-                            EC.visibility_of_element_located((By.ID, painel_id))
-                        )
-
-                        primeiro_item = WebDriverWait(driver, WAIT_MEDIUM).until(
-                            EC.element_to_be_clickable((
-                                By.CSS_SELECTOR,
-                                f"#{painel_id} li.ui-autocomplete-item:not(.ui-state-disabled)",
-                            ))
-                        )
-
-                        label_item = (primeiro_item.get_attribute("data-item-label") or primeiro_item.text or "").strip()
-                        if not label_item:
-                            raise Exception("Nenhum item disponível no autocomplete para a parte informada.")
-
-                        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", primeiro_item)
-                        time.sleep(0.15)
-
-                        # Segue o fluxo humano: seta para baixo + ENTER
-                        inp.send_keys(Keys.DOWN)
-                        time.sleep(0.25)
-                        inp.send_keys(Keys.ENTER)
-
-                        try:
-                            WebDriverWait(driver, WAIT_SHORT).until(
-                                EC.invisibility_of_element_located((By.ID, painel_id))
-                            )
-                        except Exception:
-                            pass
-
-                        selecionado = (inp.get_attribute("value") or "").strip()
-                        if not selecionado:
-                            raise Exception("Autocomplete não preencheu o campo da parte.")
-
-                        label_lower = label_item.lower()
-                        selecionado_lower = selecionado.lower()
-                        parte_lower = parte_nome.lower()
-                        if (
-                            parte_lower not in label_lower
-                            and parte_lower not in selecionado_lower
-                            and selecionado_lower not in label_lower
-                        ):
-                            print(
-                                f"ℹ️ Alerta: item selecionado '{selecionado}' difere da busca '{parte_nome}'."
-                            )
-
-                    if not attempt_twice(
-                        f"Selecionar parte {parte_nome} via autocomplete",
-                        _preencher_autocomplete_parte,
-                    ):
-                        raise Exception("Autocomplete não retornou resultados válidos.")
-
-                    # 2. Selecionar papel = RÉU
-                    def _selecionar_papel_reu():
-                        label_elem = wait_element_by_id_suffix(
-                            ":processoParteSelect_label",
-                            tag="span",
-                            condition=EC.element_to_be_clickable,
-                        )
-                        selecionar_primefaces(label_elem.get_attribute("id"), "Réu")
-
-                    if not attempt_twice(
-                        f"Selecionar papel = Réu para {parte_nome}",
-                        _selecionar_papel_reu,
-                    ):
-                        raise Exception("Não foi possível definir papel = Réu.")
-
-                    # 3. Clicar em ADICIONAR
-                    def _clicar_botao_adicionar():
-                        botao = wait_element_by_id_suffix(
-                            ":outrasParteAddButtom",
-                            tag="button",
-                            condition=EC.element_to_be_clickable,
-                        )
-                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", botao)
-                        try:
-                            botao.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", botao)
-                        time.sleep(0.4)
-
-                    if not attempt_twice(
-                        f"Confirmar inclusão de {parte_nome}",
-                        _clicar_botao_adicionar,
-                    ):
-                        raise Exception("Botão de adicionar não respondeu.")
-
-                    if not esperar_texto_em_tabela_outras_partes(parte_nome):
-                        raise Exception("Nome não apareceu na lista após adicionar.")
-
-                    print(f"✅ Reclamada '{parte_nome}' adicionada com sucesso!")
-
-                except Exception as e_parte:
-                    print(f"⚠️ Falha ao adicionar {parte_nome}: {e_parte}")
-                    continue  # Não para o fluxo, apenas segue para a próxima
-
             # Advogado parte contrária (autocomplete)
             if advogado_contr:
                 def _adv_contra():
@@ -986,7 +832,10 @@ try:
                     "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
                     "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
                 )
-                if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
+                if not preencher_autocomplete_por_id(
+                    gestor_input_id,
+                    gestor_juridico,
+                ):
                     print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
 
             # UPLOAD PDF
