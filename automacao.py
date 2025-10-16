@@ -16,7 +16,6 @@ import re
 import time
 import math
 import traceback
-import unicodedata
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -27,10 +26,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import (
-    StaleElementReferenceException,
-    TimeoutException,
-)
 
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
@@ -298,130 +293,6 @@ def marcar_erro(idx, etapa, err):
     rows_to_color_yellow.add(idx)
 
 
-def _normalizar_texto(texto: str) -> str:
-    texto = unicodedata.normalize("NFKD", str(texto or ""))
-    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
-    texto = re.sub(r"\s+", " ", texto)
-    return texto.strip().lower()
-
-
-def _locators_autocomplete(campo):
-    locators = []
-    try:
-        panel_id = campo.get_attribute("aria-controls")
-    except Exception:
-        panel_id = None
-    if panel_id:
-        locators.append((By.ID, panel_id))
-    locators.append((By.CSS_SELECTOR, "div.ui-autocomplete-panel[style*='display: block']"))
-    return locators
-
-
-def _locators_selectonemenu(panel):
-    locators = []
-    try:
-        panel_id = panel.get_attribute("id")
-    except Exception:
-        panel_id = None
-    if panel_id:
-        locators.append((By.ID, panel_id))
-    locators.append((By.CSS_SELECTOR, "div.ui-selectonemenu-panel[style*='display: block']"))
-    return locators
-
-
-def _esperar_painel_por_locators(locators, timeout=WAIT_MEDIUM):
-    limite = time.time() + timeout
-    while time.time() < limite:
-        for locator in locators:
-            try:
-                panel = driver.find_element(*locator)
-                if panel.is_displayed():
-                    return panel
-            except Exception:
-                continue
-        time.sleep(0.1)
-    raise TimeoutException("Painel de opções não ficou visível a tempo.")
-
-
-def _clicar_item_destacado(panel, valor, highlight_selector):
-    try:
-        item = panel.find_element(By.CSS_SELECTOR, highlight_selector)
-    except Exception:
-        return False
-    label = (
-        item.get_attribute("data-item-label")
-        or item.get_attribute("data-label")
-        or item.text
-    )
-    if valor and _normalizar_texto(label) != _normalizar_texto(valor):
-        return False
-    driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", item)
-    driver.execute_script("arguments[0].click();", item)
-    time.sleep(0.3)
-    return True
-
-
-def _clicar_item_por_texto(panel, locators, item_selector, valor, timeout=WAIT_MEDIUM):
-    alvo = _normalizar_texto(valor)
-    limite = time.time() + timeout
-    while time.time() < limite:
-        try:
-            itens = panel.find_elements(By.CSS_SELECTOR, item_selector)
-        except StaleElementReferenceException:
-            panel = _esperar_painel_por_locators(locators, min(1.5, timeout))
-            continue
-        encontrou_visivel = False
-        for item in itens:
-            try:
-                if not item.is_displayed():
-                    continue
-                encontrou_visivel = True
-                label = (
-                    item.get_attribute("data-item-label")
-                    or item.get_attribute("data-label")
-                    or item.text
-                )
-                if _normalizar_texto(label) == alvo:
-                    driver.execute_script(
-                        "arguments[0].scrollIntoView({block:'nearest'});", item
-                    )
-                    driver.execute_script("arguments[0].click();", item)
-                    time.sleep(0.3)
-                    return True
-            except StaleElementReferenceException:
-                encontrou_visivel = False
-                break
-        if encontrou_visivel:
-            time.sleep(0.2)
-        else:
-            panel = _esperar_painel_por_locators(locators, min(1.5, timeout))
-    return False
-
-
-def _preencher_autocomplete_campo(campo, valor, tempo_dropdown):
-    locators = _locators_autocomplete(campo)
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
-    try:
-        campo.click()
-    except Exception:
-        driver.execute_script("arguments[0].focus();", campo)
-    campo.clear()
-    time.sleep(0.1)
-    campo.send_keys(Keys.CONTROL, "a")
-    campo.send_keys(Keys.DELETE)
-    time.sleep(0.1)
-    campo.send_keys(valor)
-    time.sleep(max(tempo_dropdown, 0.3))
-    panel = _esperar_painel_por_locators(locators)
-    if _clicar_item_por_texto(panel, locators, "li.ui-autocomplete-item", valor):
-        return True
-    if _clicar_item_destacado(
-        panel, valor, "li.ui-autocomplete-item.ui-state-highlight"
-    ):
-        return True
-    raise Exception(f"Opção '{valor}' não encontrada no autocomplete.")
-
-
 def esperar_texto_em_tabela_outras_partes(texto: str, timeout=WAIT_MEDIUM) -> bool:
     if not texto:
         return False
@@ -451,9 +322,19 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
 
     def _preencher():
         campo = wait.until(EC.presence_of_element_located((By.XPATH, input_xpath)))
-        return _preencher_autocomplete_campo(campo, valor, tempo_dropdown)
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
+        campo.clear()
+        time.sleep(0.15)
+        campo.send_keys(valor)
+        time.sleep(tempo_dropdown)
+        campo.send_keys(Keys.DOWN)
+        time.sleep(0.25)
+        campo.send_keys(Keys.ENTER)
+        time.sleep(0.4)
 
-    return attempt_twice(f"Preencher '{rotulo}' com {valor}", _preencher)
+    if attempt_twice(f"Preencher '{rotulo}' com {valor}", _preencher):
+        return True
+    return False
 
 
 def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
@@ -462,133 +343,19 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
 
     def _preencher():
         campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
-        return _preencher_autocomplete_campo(campo, valor, tempo_dropdown)
-
-    return attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher)
-
-
-def selecionar_autocomplete_primefaces_por_id(
-    input_id: str, valor: str, timeout=WAIT_MEDIUM
-) -> bool:
-    if not valor:
-        return True
-
-    base_id = input_id.rsplit("_input", 1)[0]
-    panel_id = f"{base_id}_panel"
-    hidden_id = f"{base_id}_hinput"
-    literal = _xpath_literal(valor.strip())
-
-    def _selecionar():
-        campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
         campo.clear()
         time.sleep(0.15)
         campo.send_keys(valor)
-
-        panel = WebDriverWait(driver, timeout).until(
-            EC.visibility_of_element_located((By.ID, panel_id))
-        )
-        opcao = WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable(
-                (
-                    By.XPATH,
-                    f"//span[@id={_xpath_literal(panel_id)}]"
-                    f"//li[contains(@class,'ui-autocomplete-item') and @data-item-label={literal}]",
-                )
-            )
-        )
-        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", opcao)
-        driver.execute_script("arguments[0].click();", opcao)
+        time.sleep(tempo_dropdown)
+        campo.send_keys(Keys.DOWN)
+        time.sleep(0.25)
+        campo.send_keys(Keys.ENTER)
         time.sleep(0.4)
 
-        try:
-            hidden = driver.find_element(By.ID, hidden_id)
-        except Exception:
-            hidden = None
-
-        if hidden and not (hidden.get_attribute("value") or "").strip():
-            raise Exception("Seleção não refletiu no campo oculto.")
-
-    return bool(
-        attempt_twice(f"Selecionar autocomplete {input_id} com {valor}", _selecionar)
-    )
-
-
-def selecionar_gestor_juridico(valor: str, timeout=WAIT_MEDIUM) -> bool:
-    input_id = (
-        "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
-        "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
-    )
-    if not valor:
+    if attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher):
         return True
-    return selecionar_autocomplete_primefaces_por_id(input_id, valor, timeout)
-
-
-def selecionar_autocomplete_primefaces_por_id(
-    input_id: str, valor: str, timeout=WAIT_MEDIUM
-) -> bool:
-    if not valor:
-        return True
-
-    base_id = input_id.rsplit("_input", 1)[0]
-    panel_id = f"{base_id}_panel"
-    hidden_id = f"{base_id}_hinput"
-    valor_lower = valor.strip().lower()
-
-    def _selecionar():
-        campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
-        campo.clear()
-        time.sleep(0.15)
-        campo.send_keys(valor)
-
-        panel = WebDriverWait(driver, timeout).until(
-            EC.visibility_of_element_located((By.ID, panel_id))
-        )
-        WebDriverWait(driver, timeout).until(
-            lambda d: panel.find_elements(
-                By.CSS_SELECTOR, "li.ui-autocomplete-item:not(.ui-state-disabled)"
-            )
-        )
-        opcoes = panel.find_elements(
-            By.CSS_SELECTOR, "li.ui-autocomplete-item:not(.ui-state-disabled)"
-        )
-        alvo = None
-        for opcao in opcoes:
-            rotulo = (
-                (opcao.get_attribute("data-item-label") or opcao.text or "")
-                .strip()
-            )
-            if rotulo.lower() == valor_lower:
-                alvo = opcao
-                break
-        if not alvo:
-            alvo = opcoes[0]
-        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", alvo)
-        driver.execute_script("arguments[0].click();", alvo)
-        time.sleep(0.4)
-
-        try:
-            hidden = driver.find_element(By.ID, hidden_id)
-        except Exception:
-            hidden = None
-
-        if hidden and not (hidden.get_attribute("value") or "").strip():
-            raise Exception("Seleção não refletiu no campo oculto.")
-
-    return bool(
-        attempt_twice(f"Selecionar autocomplete {input_id} com {valor}", _selecionar)
-    )
-
-
-def selecionar_gestor_juridico(valor: str, timeout=WAIT_MEDIUM) -> bool:
-    input_id = (
-        "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
-        "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
-    )
-    if not valor:
-        return True
-    return selecionar_autocomplete_primefaces_por_id(input_id, valor, timeout)
+    return False
 
 def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
     try:
@@ -630,55 +397,18 @@ def selecionar_primefaces(label_id, valor, timeout=WAIT_LONG):
             "//div[contains(@class,'ui-selectonemenu-panel') and contains(@style,'display: block')]"
         ))
     )
-    panel_locators = _locators_selectonemenu(panel)
     try:
         filtro = panel.find_element(By.XPATH, ".//input[contains(@id,'_filter')]")
-    except Exception:
-        if valor:
-            if _clicar_item_por_texto(panel, panel_locators, "li.ui-selectonemenu-item", valor):
-                return True
-            if _clicar_item_destacado(
-                panel, valor, "li.ui-selectonemenu-item.ui-state-highlight"
-            ):
-                return True
-            raise Exception(f"Valor '{valor}' não encontrado no selectOneMenu {label_id}")
-        if _clicar_item_destacado(
-            panel, valor, "li.ui-selectonemenu-item.ui-state-highlight"
-        ):
-            return True
-        js = (
-            "var p=document.querySelector(\"div.ui-selectonemenu-panel[style*='display: block'] "
-            "li:not(.ui-state-disabled)\");"
-            "if(p){p.click(); return true;} return false;"
-        )
-        ok = driver.execute_script(js)
-        if ok:
-            time.sleep(0.25)
-            return True
-        raise Exception(f"Não foi possível selecionar no dropdown {label_id}")
-    else:
         filtro.clear()
         if valor:
-            filtro.send_keys(Keys.CONTROL, "a")
-            filtro.send_keys(Keys.DELETE)
             filtro.send_keys(valor)
-            time.sleep(0.4)
-            if _clicar_item_por_texto(panel, panel_locators, "li.ui-selectonemenu-item", valor):
-                return True
-            if _clicar_item_destacado(
-                panel, valor, "li.ui-selectonemenu-item.ui-state-highlight"
-            ):
-                return True
-            raise Exception(f"Valor '{valor}' não encontrado no selectOneMenu {label_id}")
-        if _clicar_item_destacado(
-            panel, valor, "li.ui-selectonemenu-item.ui-state-highlight"
-        ):
-            return True
-        js = (
-            "var p=document.querySelector(\"div.ui-selectonemenu-panel[style*='display: block'] "
-            "li:not(.ui-state-disabled)\");"
-            "if(p){p.click(); return true;} return false;"
-        )
+        time.sleep(0.6)
+        filtro.send_keys(Keys.ENTER)
+        time.sleep(0.35)
+        return True
+    except Exception:
+        js = ("var p=document.querySelector(\"div.ui-selectonemenu-panel[style*='display: block'] li:not(.ui-state-disabled)\");"
+              "if(p){p.click(); return true;} return false;")
         ok = driver.execute_script(js)
         if ok:
             time.sleep(0.25)
@@ -1068,9 +798,7 @@ try:
             # Advogado responsável (autocomplete + selectOneMenu)
             if adv_resp:
                 adv_resp_input_id = "j_id_4c_1:autoCompleteLawyer_input"
-                if not selecionar_autocomplete_primefaces_por_id(
-                    adv_resp_input_id, adv_resp
-                ):
+                if not preencher_autocomplete_por_id(adv_resp_input_id, adv_resp):
                     print("⚠️ Autocomplete de Advogado Responsável não retornou resultados válidos.")
                 else:
                     attempt_twice(
@@ -1081,21 +809,17 @@ try:
                     )
 
             # Gestor Jurídico (autocomplete específico)
-            if gestor_juridico and not selecionar_gestor_juridico(gestor_juridico):
-                print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
-
-            # Escritório Externo (selectOneMenu com filtro)
-            if escritorio_ext:
-                selecionado_escritorio = attempt_twice(
-                    "Selecionar Escritório Externo",
-                    selecionar_primefaces,
-                    "j_id_4c_1:comboEscritorioLimit_label",
-                    escritorio_ext,
+            if gestor_juridico:
+                gestor_input_id = (
+                    "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
+                    "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
                 )
-                if not selecionado_escritorio and not preencher_autocomplete_por_rotulo(
-                    "Escritório Externo", escritorio_ext
-                ):
-                    print("⚠️ Campo 'Escritório Externo' não foi atualizado automaticamente.")
+                if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
+                    print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
+
+            # Escritório Externo (campo dedicado)
+            if escritorio_ext and not preencher_autocomplete_por_rotulo("Escritório Externo", escritorio_ext):
+                print("⚠️ Campo 'Escritório Externo' não foi atualizado automaticamente.")
 
             # UPLOAD PDF
             if not os.path.exists(pdf_path):
