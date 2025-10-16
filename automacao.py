@@ -466,6 +466,63 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
 
     return attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher)
 
+
+def selecionar_autocomplete_primefaces_por_id(
+    input_id: str, valor: str, timeout=WAIT_MEDIUM
+) -> bool:
+    if not valor:
+        return True
+
+    base_id = input_id.rsplit("_input", 1)[0]
+    panel_id = f"{base_id}_panel"
+    hidden_id = f"{base_id}_hinput"
+    literal = _xpath_literal(valor.strip())
+
+    def _selecionar():
+        campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
+        campo.clear()
+        time.sleep(0.15)
+        campo.send_keys(valor)
+
+        panel = WebDriverWait(driver, timeout).until(
+            EC.visibility_of_element_located((By.ID, panel_id))
+        )
+        opcao = WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    f"//span[@id={_xpath_literal(panel_id)}]"
+                    f"//li[contains(@class,'ui-autocomplete-item') and @data-item-label={literal}]",
+                )
+            )
+        )
+        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", opcao)
+        driver.execute_script("arguments[0].click();", opcao)
+        time.sleep(0.4)
+
+        try:
+            hidden = driver.find_element(By.ID, hidden_id)
+        except Exception:
+            hidden = None
+
+        if hidden and not (hidden.get_attribute("value") or "").strip():
+            raise Exception("Seleção não refletiu no campo oculto.")
+
+    return bool(
+        attempt_twice(f"Selecionar autocomplete {input_id} com {valor}", _selecionar)
+    )
+
+
+def selecionar_gestor_juridico(valor: str, timeout=WAIT_MEDIUM) -> bool:
+    input_id = (
+        "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
+        "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
+    )
+    if not valor:
+        return True
+    return selecionar_autocomplete_primefaces_por_id(input_id, valor, timeout)
+
 def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
     try:
         wb = load_workbook(excel_path)
@@ -944,7 +1001,9 @@ try:
             # Advogado responsável (autocomplete + selectOneMenu)
             if adv_resp:
                 adv_resp_input_id = "j_id_4c_1:autoCompleteLawyer_input"
-                if not preencher_autocomplete_por_id(adv_resp_input_id, adv_resp):
+                if not selecionar_autocomplete_primefaces_por_id(
+                    adv_resp_input_id, adv_resp
+                ):
                     print("⚠️ Autocomplete de Advogado Responsável não retornou resultados válidos.")
                 else:
                     attempt_twice(
@@ -955,13 +1014,8 @@ try:
                     )
 
             # Gestor Jurídico (autocomplete específico)
-            if gestor_juridico:
-                gestor_input_id = (
-                    "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
-                    "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
-                )
-                if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
-                    print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
+            if gestor_juridico and not selecionar_gestor_juridico(gestor_juridico):
+                print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
 
             # Escritório Externo (selectOneMenu com filtro)
             if escritorio_ext:
