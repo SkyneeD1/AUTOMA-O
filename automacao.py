@@ -74,7 +74,6 @@ COL_CLASSIFICACAO        = "Classificação Interna"
 COL_INSTANCIA            = "Instância"
 COL_FASE                 = "Fase"
 COL_JUIZ                 = "Juiz"
-COL_CLIENTE_EMPRESA      = "Empresa e Forma de participação"
 COL_CPF_PARTE_CONTR      = "CPF DA PARTE CONTRARIA"
 COL_ADV_CONTR            = "Advogado da Parte Contrária"
 COL_DATA_DISTR           = "Data de Distribuição"
@@ -687,7 +686,6 @@ try:
         instancia       = safe_text(row.get(COL_INSTANCIA, ""))
         fase_processo   = safe_text(row.get(COL_FASE, ""))
         juiz_nome       = safe_text(row.get(COL_JUIZ, ""))
-        cliente_empresa = safe_text(row.get(COL_CLIENTE_EMPRESA, ""))
         cpf_cnpj_contr  = safe_text(row.get(COL_CPF_PARTE_CONTR, ""))
         advogado_contr  = safe_text(row.get(COL_ADV_CONTR, ""))
         tipo_processo   = safe_text(row.get(COL_TIPO_ACAO, ""))
@@ -753,9 +751,6 @@ try:
             if fase_processo:
                 attempt_twice("Selecionar Fase", selecionar_primefaces,
                               "j_id_4c_1:processoFaseCombo_label", fase_processo)
-            if cliente_empresa:
-                attempt_twice("Selecionar Empresa (Cliente)", selecionar_primefaces,
-                              "j_id_4c_1:comboClientProcessoParte_label", cliente_empresa)
 
             # Papel = Réu
             attempt_twice("Selecionar Papel = Réu", selecionar_primefaces,
