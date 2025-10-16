@@ -193,6 +193,30 @@ def to_amount_str(val):
     except Exception:
         return str(val).replace(",", ".")
 
+
+def tentar_selecionar_primeiro_item_autocomplete(painel_id: str) -> bool:
+    """Tenta clicar diretamente no primeiro item do autocomplete informado."""
+    if not painel_id:
+        return False
+
+    try:
+        painel_wait = WebDriverWait(driver, WAIT_SHORT)
+        painel_wait.until(EC.visibility_of_element_located((By.ID, painel_id)))
+        xpath_primeiro_item = (
+            f"//*[@id={_xpath_literal(painel_id)}]//li[contains(@class,'ui-autocomplete-item')]"
+        )
+        primeiro_item = painel_wait.until(
+            EC.element_to_be_clickable((By.XPATH, xpath_primeiro_item))
+        )
+        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", primeiro_item)
+        primeiro_item.click()
+        time.sleep(0.3)
+        return True
+    except Exception as e:
+        print(f"ℹ️ Não foi possível clicar no primeiro item do autocomplete {painel_id}: {e}")
+        return False
+
+
 def attempt_twice(action_desc, func, *args, **kwargs):
     for tent in range(1, 2 + 1):
         try:
@@ -327,6 +351,13 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
         time.sleep(0.15)
         campo.send_keys(valor)
         time.sleep(tempo_dropdown)
+        campo_id = campo.get_attribute("id") or ""
+        painel_id = ""
+        if campo_id.endswith("_input"):
+            painel_id = f"{campo_id[:-len('_input')]}_panel"
+        if painel_id and tentar_selecionar_primeiro_item_autocomplete(painel_id):
+            time.sleep(0.4)
+            return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
         campo.send_keys(Keys.ENTER)
@@ -340,6 +371,9 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
 def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
     if not valor:
         return True
+    painel_id = ""
+    if input_id.endswith("_input"):
+        painel_id = f"{input_id[:-len('_input')]}_panel"
 
     def _preencher():
         campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
@@ -348,6 +382,9 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
         time.sleep(0.15)
         campo.send_keys(valor)
         time.sleep(tempo_dropdown)
+        if painel_id and tentar_selecionar_primeiro_item_autocomplete(painel_id):
+            time.sleep(0.4)
+            return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
         campo.send_keys(Keys.ENTER)
@@ -356,6 +393,19 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
     if attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher):
         return True
     return False
+
+
+def selecionar_escritorio_externo(valor: str) -> bool:
+    """Seleciona o Escritório Externo lidando com versões autocomplete ou selectOneMenu."""
+    if not valor:
+        return True
+
+    label_id = "j_id_4c_1:comboEscritorioLimit_label"
+    if attempt_twice("Selecionar 'Escritório Externo' via selectOneMenu", selecionar_primefaces, label_id, valor):
+        return True
+
+    print("ℹ️ Falha no selectOneMenu padrão, tentando autocomplete legado para 'Escritório Externo'.")
+    return preencher_autocomplete_por_rotulo("Escritório Externo", valor)
 
 def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
     try:
@@ -817,8 +867,8 @@ try:
                 if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
                     print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
 
-            # Escritório Externo (campo dedicado)
-            if escritorio_ext and not preencher_autocomplete_por_rotulo("Escritório Externo", escritorio_ext):
+            # Escritório Externo (selectOneMenu com fallback para versões antigas)
+            if escritorio_ext and not selecionar_escritorio_externo(escritorio_ext):
                 print("⚠️ Campo 'Escritório Externo' não foi atualizado automaticamente.")
 
             # UPLOAD PDF
