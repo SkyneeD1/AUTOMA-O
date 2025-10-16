@@ -194,8 +194,11 @@ def to_amount_str(val):
         return str(val).replace(",", ".")
 
 
-def tentar_selecionar_primeiro_item_autocomplete(painel_id: str) -> bool:
-    """Tenta clicar diretamente no primeiro item do autocomplete informado."""
+def tentar_selecionar_primeiro_item_autocomplete(painel_id: str):
+    """Tenta clicar diretamente no primeiro item do autocomplete informado.
+
+    Retorna o label do item selecionado quando bem-sucedido, caso contrário False.
+    """
     if not painel_id:
         return False
 
@@ -209,9 +212,19 @@ def tentar_selecionar_primeiro_item_autocomplete(painel_id: str) -> bool:
             EC.element_to_be_clickable((By.XPATH, xpath_primeiro_item))
         )
         driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", primeiro_item)
-        primeiro_item.click()
-        time.sleep(0.3)
-        return True
+        label = (primeiro_item.get_attribute("data-item-label") or primeiro_item.text or "").strip()
+        try:
+            primeiro_item.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", primeiro_item)
+
+        try:
+            painel_wait.until(EC.invisibility_of_element_located((By.ID, painel_id)))
+        except Exception:
+            pass
+
+        time.sleep(0.2)
+        return label or True
     except Exception as e:
         print(f"ℹ️ Não foi possível clicar no primeiro item do autocomplete {painel_id}: {e}")
         return False
@@ -355,9 +368,24 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
         painel_id = ""
         if campo_id.endswith("_input"):
             painel_id = f"{campo_id[:-len('_input')]}_panel"
-        if painel_id and tentar_selecionar_primeiro_item_autocomplete(painel_id):
-            time.sleep(0.4)
-            return
+        if painel_id:
+            selecionado = tentar_selecionar_primeiro_item_autocomplete(painel_id)
+            if selecionado:
+                esperado = str(selecionado).strip()
+                if esperado:
+                    try:
+                        WebDriverWait(driver, WAIT_SHORT).until(
+                            lambda d: esperado.lower()
+                            in (campo.get_attribute("value") or "").lower()
+                        )
+                    except Exception:
+                        pass
+                try:
+                    campo.send_keys(Keys.ENTER)
+                except Exception:
+                    pass
+                time.sleep(0.4)
+                return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
         campo.send_keys(Keys.ENTER)
@@ -382,9 +410,24 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
         time.sleep(0.15)
         campo.send_keys(valor)
         time.sleep(tempo_dropdown)
-        if painel_id and tentar_selecionar_primeiro_item_autocomplete(painel_id):
-            time.sleep(0.4)
-            return
+        if painel_id:
+            selecionado = tentar_selecionar_primeiro_item_autocomplete(painel_id)
+            if selecionado:
+                esperado = str(selecionado).strip()
+                if esperado:
+                    try:
+                        WebDriverWait(driver, WAIT_SHORT).until(
+                            lambda d: esperado.lower()
+                            in (campo.get_attribute("value") or "").lower()
+                        )
+                    except Exception:
+                        pass
+                try:
+                    campo.send_keys(Keys.ENTER)
+                except Exception:
+                    pass
+                time.sleep(0.4)
+                return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
         campo.send_keys(Keys.ENTER)
