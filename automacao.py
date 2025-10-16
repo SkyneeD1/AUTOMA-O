@@ -16,6 +16,7 @@ import re
 import time
 import math
 import traceback
+import unicodedata
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -426,6 +427,15 @@ def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
 # ================
 _SIGLA_ESTADO_RE = re.compile(r"^[A-Z]{2}$")
 
+
+def _normalize_primefaces_label(texto: str) -> str:
+    if not texto:
+        return ""
+    sem_acento = unicodedata.normalize("NFKD", texto)
+    sem_acento = "".join(c for c in sem_acento if not unicodedata.combining(c))
+    compacto = re.sub(r"\s+", " ", sem_acento)
+    return compacto.strip().casefold()
+
 def _ajusta_valor_para_estado(label_id: str, valor: str) -> str:
     if not valor:
         return valor
@@ -437,7 +447,13 @@ def _ajusta_valor_para_estado(label_id: str, valor: str) -> str:
 
 def selecionar_primefaces(label_id, valor, timeout=WAIT_LONG):
     valor = _ajusta_valor_para_estado(label_id, (valor or "").strip())
+    alvo_normalizado = _normalize_primefaces_label(valor)
     label = wait.until(EC.element_to_be_clickable((By.ID, label_id)))
+    texto_visivel = label.text or label.get_attribute("innerText") or ""
+    label_texto_atual = _normalize_primefaces_label(texto_visivel)
+    if alvo_normalizado and label_texto_atual == alvo_normalizado:
+        return True
+
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", label)
     driver.execute_script("arguments[0].click();", label)
     time.sleep(0.25)
@@ -447,23 +463,33 @@ def selecionar_primefaces(label_id, valor, timeout=WAIT_LONG):
             "//div[contains(@class,'ui-selectonemenu-panel') and contains(@style,'display: block')]"
         ))
     )
+
+    def _localiza_itens():
+        itens = panel.find_elements(By.CSS_SELECTOR, "li.ui-selectonemenu-item")
+        candidatos = []
+        for item in itens:
+            if "ui-state-disabled" in (item.get_attribute("class") or ""):
+                continue
+            etiqueta = item.get_attribute("data-label") or item.text
+            if alvo_normalizado and _normalize_primefaces_label(etiqueta) == alvo_normalizado:
+                return item
+            candidatos.append(item)
+        return candidatos[0] if candidatos else None
+
     try:
         filtro = panel.find_element(By.XPATH, ".//input[contains(@id,'_filter')]")
         filtro.clear()
         if valor:
             filtro.send_keys(valor)
-        time.sleep(0.6)
-        filtro.send_keys(Keys.ENTER)
-        time.sleep(0.35)
-        return True
+        time.sleep(0.5)
     except Exception:
-        js = ("var p=document.querySelector(\"div.ui-selectonemenu-panel[style*='display: block'] li:not(.ui-state-disabled)\");"
-              "if(p){p.click(); return true;} return false;")
-        ok = driver.execute_script(js)
-        if ok:
-            time.sleep(0.25)
-            return True
-        raise Exception(f"Não foi possível selecionar no dropdown {label_id}")
+        pass
+
+    item_desejado = WebDriverWait(driver, timeout).until(lambda _: _localiza_itens())
+    driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", item_desejado)
+    driver.execute_script("arguments[0].click();", item_desejado)
+    time.sleep(0.3)
+    return True
 
 # =====================
 # MODAIS COM IFRAME (Juiz + Parte Contrária)
