@@ -32,6 +32,7 @@ from selenium.webdriver.chrome.service import Service
 # =====================
 from typing import Callable, Optional
 
+
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
@@ -251,6 +252,8 @@ def wait_element_by_id_suffix(
     locator = (By.CSS_SELECTOR, selector)
     expected = condition(locator) if condition else EC.presence_of_element_located(locator)
     return WebDriverWait(driver, timeout).until(expected)
+
+
 
 
 def attempt_twice(action_desc, func, *args, **kwargs):
@@ -488,147 +491,35 @@ def _ajusta_valor_para_estado(label_id: str, valor: str) -> str:
         return valor.strip().upper() + " -"
     return valor
 
-def _esperar_itens_panel(panel, timeout=WAIT_MEDIUM):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        itens = [
-            item
-            for item in panel.find_elements(By.CSS_SELECTOR, "li.ui-selectonemenu-item")
-            if item.is_displayed() and "ui-state-disabled" not in (item.get_attribute("class") or "")
-        ]
-        if itens:
-            return itens
-        time.sleep(0.1)
-    return []
-
-
 def selecionar_primefaces(label_id, valor, timeout=WAIT_LONG):
     valor = _ajusta_valor_para_estado(label_id, (valor or "").strip())
-    base_prefix = ""
-    if label_id.endswith("_label"):
-        base_prefix = label_id[:-len("_label")] + "_"
-
     label = wait.until(EC.element_to_be_clickable((By.ID, label_id)))
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", label)
     driver.execute_script("arguments[0].click();", label)
     time.sleep(0.25)
-
     panel = WebDriverWait(driver, timeout).until(
         EC.visibility_of_element_located((
             By.XPATH,
             "//div[contains(@class,'ui-selectonemenu-panel') and contains(@style,'display: block')]"
         ))
     )
-    panel_id = panel.get_attribute("id") or ""
-    panel_xpath = (
-        f"//*[@id={_xpath_literal(panel_id)}]"
-        if panel_id
-        else "//div[contains(@class,'ui-selectonemenu-panel') and contains(@style,'display: block')]"
-    )
-
-    filtro = None
-    if valor:
-        try:
-            filtro = panel.find_element(By.XPATH, ".//input[contains(@id,'_filter')]")
-            filtro.clear()
+    try:
+        filtro = panel.find_element(By.XPATH, ".//input[contains(@id,'_filter')]")
+        filtro.clear()
+        if valor:
             filtro.send_keys(valor)
-            time.sleep(0.6)
-        except Exception:
-            filtro = None
-
-    itens = _esperar_itens_panel(panel)
-    option = None
-    valor_lower = valor.lower()
-
-    def _texto_item(item):
-        return (item.get_attribute("data-label") or item.text or "").strip()
-
-    if valor:
-        search_xpaths = []
-        literal_valor = _xpath_literal(valor)
-        if base_prefix:
-            search_xpaths.append(
-                f"{panel_xpath}//li[contains(@id,{_xpath_literal(base_prefix)}) and normalize-space(.)={literal_valor}]"
-            )
-        search_xpaths.extend(
-            [
-                f"{panel_xpath}//li[normalize-space(@data-label)={literal_valor}]",
-                f"{panel_xpath}//li[normalize-space(.)={literal_valor}]",
-            ]
-        )
-
-        for xpath in search_xpaths:
-            try:
-                option = WebDriverWait(driver, WAIT_SHORT).until(
-                    EC.element_to_be_clickable((By.XPATH, xpath))
-                )
-                break
-            except Exception:
-                continue
-
-        if option is None and itens:
-            for item in itens:
-                texto = _texto_item(item)
-                if texto.lower() == valor_lower:
-                    option = item
-                    break
-
-        if option is None and itens:
-            for item in itens:
-                texto = _texto_item(item)
-                if valor_lower in texto.lower():
-                    option = item
-                    break
-
-    if option is None and itens:
-        option = itens[0]
-
-    if option is not None:
-        driver.execute_script("arguments[0].scrollIntoView({block:'nearest'});", option)
-        try:
-            option.click()
-        except Exception:
-            driver.execute_script("arguments[0].click();", option)
-    elif filtro is not None:
-        try:
-            filtro.send_keys(Keys.ENTER)
-        except Exception:
-            pass
-    else:
-        js = (
-            "var p=document.querySelector(\"div.ui-selectonemenu-panel[style*='display: block']"
-            " li:not(.ui-state-disabled)\");"
-            "if(p){p.click(); return true;} return false;"
-        )
+        time.sleep(0.6)
+        filtro.send_keys(Keys.ENTER)
+        time.sleep(0.35)
+        return True
+    except Exception:
+        js = ("var p=document.querySelector(\"div.ui-selectonemenu-panel[style*='display: block'] li:not(.ui-state-disabled)\");"
+              "if(p){p.click(); return true;} return false;")
         ok = driver.execute_script(js)
-        if not ok:
-            raise Exception(f"Não foi possível selecionar no dropdown {label_id}")
-
-    if panel_id:
-        try:
-            WebDriverWait(driver, WAIT_SHORT).until(
-                EC.invisibility_of_element_located((By.ID, panel_id))
-            )
-        except Exception:
-            pass
-
-    if valor:
-        def _label_text():
-            try:
-                alvo = driver.find_element(By.ID, label_id)
-                return (alvo.text or alvo.get_attribute("innerText") or "").strip()
-            except Exception:
-                return ""
-
-        try:
-            WebDriverWait(driver, WAIT_SHORT).until(
-                lambda d: valor_lower in _label_text().lower()
-            )
-        except Exception:
-            pass
-
-    time.sleep(0.3)
-    return True
+        if ok:
+            time.sleep(0.25)
+            return True
+        raise Exception(f"Não foi possível selecionar no dropdown {label_id}")
 
 # =====================
 # MODAIS COM IFRAME (Juiz + Parte Contrária)
@@ -825,6 +716,7 @@ try:
         valor_causa     = to_amount_str(row.get(COL_VALOR_CAUSA, ""))
         adv_resp        = safe_text(row.get(COL_ADV_RESP, ""))
         gestor_juridico = safe_text(row.get(COL_GESTOR_JURIDICO, ""))
+
         # DATAS normalizadas (robustas)
         data_distrib    = as_ddmmyyyy(row.get(COL_DATA_DISTR, ""))
         data_receb      = as_ddmmyyyy(row.get(COL_DATA_CITACAO, ""))
