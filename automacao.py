@@ -374,7 +374,11 @@ def esperar_texto_em_tabela_outras_partes(texto: str, timeout=WAIT_MEDIUM) -> bo
         return False
 
 
-def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
+def preencher_autocomplete_por_rotulo(
+    rotulo: str,
+    valor: str,
+    tempo_dropdown: float = 0.9,
+) -> bool:
     if not valor:
         return True
     literal = _xpath_literal(rotulo)
@@ -414,15 +418,25 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
                 return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
-        campo.send_keys(Keys.ENTER)
+        try:
+            campo.send_keys(Keys.ENTER)
+        except Exception:
+            pass
         time.sleep(0.4)
 
-    if attempt_twice(f"Preencher '{rotulo}' com {valor}", _preencher):
+    if attempt_twice(
+        f"Preencher '{rotulo}' com {valor}",
+        _preencher,
+    ):
         return True
     return False
 
 
-def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
+def preencher_autocomplete_por_id(
+    input_id: str,
+    valor: str,
+    tempo_dropdown: float = 0.9,
+) -> bool:
     if not valor:
         return True
     painel_id = ""
@@ -456,10 +470,16 @@ def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: flo
                 return
         campo.send_keys(Keys.DOWN)
         time.sleep(0.25)
-        campo.send_keys(Keys.ENTER)
+        try:
+            campo.send_keys(Keys.ENTER)
+        except Exception:
+            pass
         time.sleep(0.4)
 
-    if attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher):
+    if attempt_twice(
+        f"Preencher autocomplete {input_id} com {valor}",
+        _preencher,
+    ):
         return True
     return False
 
@@ -802,6 +822,64 @@ try:
                 if not attempt_twice("Incluir Parte Contrária (Modal c/ iframe)", incluir_parte_contraria_modal_js, cpf_cnpj_contr):
                     raise Exception("Falha ao incluir parte contrária via modal.")
 
+            # Advogado parte contrária (autocomplete)
+            if advogado_contr:
+                def _adv_contra():
+                    inp = wait.until(EC.presence_of_element_located((By.ID, "j_id_4c_1:j_id_4c_5_2_2_f_9_2v_1:autocompleteAdvogadoParteContrariaNome_input")))
+                    inp.clear()
+                    time.sleep(0.15)
+                    inp.send_keys(advogado_contr)
+                    time.sleep(0.9)
+                    inp.send_keys(Keys.DOWN)
+                    time.sleep(0.2)
+                    inp.send_keys(Keys.ENTER)
+                    time.sleep(0.4)
+                attempt_twice("Selecionar Advogado da Parte Contrária", _adv_contra)
+
+            # ✅ DATAS com normalização + digitação humana
+            if data_distrib:
+                attempt_twice("DIGITAR Data Distribuição (humano)", digitar_data_humano,
+                              "j_id_4c_1:dataDistribuicao_input", data_distrib)
+
+            if data_receb:
+                attempt_twice("DIGITAR Data Citação (humano)", digitar_data_humano,
+                              "j_id_4c_1:dataRecebimento_input", data_receb)
+
+            # Tipo de ação
+            if tipo_processo:
+                attempt_twice("Selecionar Tipo de Ação", selecionar_primefaces,
+                              "j_id_4c_1:comboProcessoTipo_label", tipo_processo)
+
+            # Valor da causa
+            if valor_causa:
+                attempt_twice("Preencher Valor da Causa", preencher_input,
+                              "j_id_4c_1:amountCase_input", valor_causa)
+
+            # Advogado responsável (autocomplete + selectOneMenu)
+            if adv_resp:
+                adv_resp_input_id = "j_id_4c_1:autoCompleteLawyer_input"
+                if not preencher_autocomplete_por_id(adv_resp_input_id, adv_resp):
+                    print("⚠️ Autocomplete de Advogado Responsável não retornou resultados válidos.")
+                else:
+                    attempt_twice(
+                        "Selecionar Advogado Responsável",
+                        selecionar_primefaces,
+                        "j_id_4c_1:comboAdvogadoResponsavelProcesso_label",
+                        adv_resp,
+                    )
+
+            # Gestor Jurídico (autocomplete específico)
+            if gestor_juridico:
+                gestor_input_id = (
+                    "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
+                    "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
+                )
+                if not preencher_autocomplete_por_id(
+                    gestor_input_id,
+                    gestor_juridico,
+                ):
+                    print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
+
             # =========================
             # ✅ INCLUSÃO DE OUTRAS RECLAMADAS (1ª → 7ª RECLAMADA)
             # =========================
@@ -933,61 +1011,6 @@ try:
                 except Exception as e_parte:
                     print(f"⚠️ Falha ao adicionar {parte_nome}: {e_parte}")
                     continue  # Não para o fluxo, apenas segue para a próxima
-
-            # Advogado parte contrária (autocomplete)
-            if advogado_contr:
-                def _adv_contra():
-                    inp = wait.until(EC.presence_of_element_located((By.ID, "j_id_4c_1:j_id_4c_5_2_2_f_9_2v_1:autocompleteAdvogadoParteContrariaNome_input")))
-                    inp.clear()
-                    time.sleep(0.15)
-                    inp.send_keys(advogado_contr)
-                    time.sleep(0.9)
-                    inp.send_keys(Keys.DOWN)
-                    time.sleep(0.2)
-                    inp.send_keys(Keys.ENTER)
-                    time.sleep(0.4)
-                attempt_twice("Selecionar Advogado da Parte Contrária", _adv_contra)
-
-            # ✅ DATAS com normalização + digitação humana
-            if data_distrib:
-                attempt_twice("DIGITAR Data Distribuição (humano)", digitar_data_humano,
-                              "j_id_4c_1:dataDistribuicao_input", data_distrib)
-
-            if data_receb:
-                attempt_twice("DIGITAR Data Citação (humano)", digitar_data_humano,
-                              "j_id_4c_1:dataRecebimento_input", data_receb)
-
-            # Tipo de ação
-            if tipo_processo:
-                attempt_twice("Selecionar Tipo de Ação", selecionar_primefaces,
-                              "j_id_4c_1:comboProcessoTipo_label", tipo_processo)
-
-            # Valor da causa
-            if valor_causa:
-                attempt_twice("Preencher Valor da Causa", preencher_input,
-                              "j_id_4c_1:amountCase_input", valor_causa)
-
-            # Advogado responsável (autocomplete + selectOneMenu)
-            if adv_resp:
-                adv_resp_input_id = "j_id_4c_1:autoCompleteLawyer_input"
-                if not preencher_autocomplete_por_id(adv_resp_input_id, adv_resp):
-                    print("⚠️ Autocomplete de Advogado Responsável não retornou resultados válidos.")
-                else:
-                    attempt_twice(
-                        "Selecionar Advogado Responsável",
-                        selecionar_primefaces,
-                        "j_id_4c_1:comboAdvogadoResponsavelProcesso_label",
-                        adv_resp,
-                    )
-
-            # Gestor Jurídico (autocomplete específico)
-            if gestor_juridico:
-                gestor_input_id = (
-                    "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
-                    "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
-                )
-                if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
-                    print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
 
             # UPLOAD PDF
             if not os.path.exists(pdf_path):
