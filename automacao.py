@@ -205,6 +205,22 @@ def attempt_twice(action_desc, func, *args, **kwargs):
                 time.sleep(1.2)
     return False
 
+
+def _xpath_literal(texto: str) -> str:
+    """Escapa corretamente strings para uso em XPaths (lida com aspas simples/duplas)."""
+    if "'" not in texto:
+        return f"'{texto}'"
+    if '"' not in texto:
+        return f'"{texto}"'
+    partes = texto.split("'")
+    pedacos = []
+    for idx, parte in enumerate(partes):
+        if parte:
+            pedacos.append(f"'{parte}'")
+        if idx != len(partes) - 1:
+            pedacos.append("\"'\"")
+    return "concat(" + ",".join(pedacos) + ")"
+
 def clicar_id(elem_id):
     print(f"➡️ Clicar ID: {elem_id}")
     elem = wait.until(EC.element_to_be_clickable((By.ID, elem_id)))
@@ -275,6 +291,50 @@ def marcar_erro(idx, etapa, err):
     print(f"❌ {msg}")
     set_status(idx, f"⚠️ {msg}")
     rows_to_color_yellow.add(idx)
+
+
+def esperar_texto_em_tabela_outras_partes(texto: str, timeout=WAIT_MEDIUM) -> bool:
+    if not texto:
+        return False
+    literal = _xpath_literal(texto.strip())
+    xpath = (
+        "//table[contains(@id,'outrasParte') and contains(@class,'ui-datatable')]"
+        f"//span[contains(normalize-space(.), {literal})]"
+    )
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.XPATH, xpath))
+        )
+        return True
+    except Exception as e:
+        print(f"⚠️ Não encontrei '{texto}' na lista de Outras Partes: {e}")
+        return False
+
+
+def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
+    if not valor:
+        return True
+    literal = _xpath_literal(rotulo)
+    input_xpath = (
+        f"//label[contains(normalize-space(.), {literal})]"
+        "//following::input[contains(@id,'autocomplete')][1]"
+    )
+
+    def _preencher():
+        campo = wait.until(EC.presence_of_element_located((By.XPATH, input_xpath)))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
+        campo.clear()
+        time.sleep(0.15)
+        campo.send_keys(valor)
+        time.sleep(tempo_dropdown)
+        campo.send_keys(Keys.DOWN)
+        time.sleep(0.25)
+        campo.send_keys(Keys.ENTER)
+        time.sleep(0.4)
+
+    if attempt_twice(f"Preencher '{rotulo}' com {valor}", _preencher):
+        return True
+    return False
 
 def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
     try:
@@ -528,7 +588,8 @@ try:
         tipo_processo   = safe_text(row.get(COL_TIPO_ACAO, ""))
         valor_causa     = to_amount_str(row.get(COL_VALOR_CAUSA, ""))
         adv_resp        = safe_text(row.get(COL_ADV_RESP, ""))
-        outro_adv       = safe_text(row.get(COL_GESTOR_JURIDICO, "")) or safe_text(row.get(COL_ESCRITORIO_EXTERNO, ""))
+        gestor_juridico = safe_text(row.get(COL_GESTOR_JURIDICO, ""))
+        escritorio_ext  = safe_text(row.get(COL_ESCRITORIO_EXTERNO, ""))
 
         # DATAS normalizadas (robustas)
         data_distrib    = as_ddmmyyyy(row.get(COL_DATA_DISTR, ""))
@@ -634,7 +695,11 @@ try:
                 try:
                     # 1. AUTOCOMPLETE - DIGITAR NOME E SELECIONAR NO DROPDOWN
                     def _preencher_autocomplete_parte():
-                        inp = wait.until(EC.presence_of_element_located((By.ID, "j_id_4c_1:j_id_4c_5_2_2_e_9_c_1:autocompleteOutraParte_input")))
+                        inp = wait.until(EC.presence_of_element_located((
+                            By.ID,
+                            "j_id_4c_1:j_id_4c_5_2_2_e_9_c_1:autocompleteOutraParte_input"
+                        )))
+                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", inp)
                         inp.clear()
                         time.sleep(0.15)
                         inp.send_keys(parte_nome)
@@ -644,15 +709,31 @@ try:
                         inp.send_keys(Keys.ENTER)
                         time.sleep(0.5)
 
-                    attempt_twice(f"Selecionar parte {parte_nome} via autocomplete", _preencher_autocomplete_parte)
+                    if not attempt_twice(
+                        f"Selecionar parte {parte_nome} via autocomplete",
+                        _preencher_autocomplete_parte,
+                    ):
+                        raise Exception("Autocomplete não retornou resultados válidos.")
 
                     # 2. Selecionar papel = RÉU
-                    attempt_twice(f"Selecionar papel = Réu para {parte_nome}", selecionar_primefaces,
-                                  "j_id_4c_1:j_id_4c_5_2_2_e_9_c_1:processoParteSelect_label", "Réu")
+                    if not attempt_twice(
+                        f"Selecionar papel = Réu para {parte_nome}",
+                        selecionar_primefaces,
+                        "j_id_4c_1:j_id_4c_5_2_2_e_9_c_1:processoParteSelect_label",
+                        "Réu",
+                    ):
+                        raise Exception("Não foi possível definir papel = Réu.")
 
                     # 3. Clicar em ADICIONAR
-                    attempt_twice(f"Confirmar inclusão de {parte_nome}", clicar_id,
-                                  "j_id_4c_1:j_id_4c_5_2_2_e_9_c_1:outrasParteAddButtom")
+                    if not attempt_twice(
+                        f"Confirmar inclusão de {parte_nome}",
+                        clicar_id,
+                        "j_id_4c_1:j_id_4c_5_2_2_e_9_c_1:outrasParteAddButtom",
+                    ):
+                        raise Exception("Botão de adicionar não respondeu.")
+
+                    if not esperar_texto_em_tabela_outras_partes(parte_nome):
+                        raise Exception("Nome não apareceu na lista após adicionar.")
 
                     print(f"✅ Reclamada '{parte_nome}' adicionada com sucesso!")
 
@@ -698,22 +779,13 @@ try:
                 attempt_twice("Selecionar Advogado Responsável", selecionar_primefaces,
                               "j_id_4c_1:comboAdvogadoResponsavelProcesso_label", adv_resp)
 
-            # Outro advogado (Gestor/Escritório)
-            if outro_adv:
-                def _outro_adv():
-                    inp = wait.until(EC.presence_of_element_located((
-                        By.ID,
-                        "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
-                    )))
-                    inp.clear()
-                    time.sleep(0.15)
-                    inp.send_keys(outro_adv)
-                    time.sleep(0.9)
-                    inp.send_keys(Keys.DOWN)
-                    time.sleep(0.2)
-                    inp.send_keys(Keys.ENTER)
-                    time.sleep(0.4)
-                attempt_twice("Selecionar Outro Advogado (autocomplete)", _outro_adv)
+            # Gestor Jurídico
+            if gestor_juridico and not preencher_autocomplete_por_rotulo("Gestor Jurídico", gestor_juridico):
+                print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
+
+            # Escritório Externo (campo dedicado)
+            if escritorio_ext and not preencher_autocomplete_por_rotulo("Escritório Externo", escritorio_ext):
+                print("⚠️ Campo 'Escritório Externo' não foi atualizado automaticamente.")
 
             # UPLOAD PDF
             if not os.path.exists(pdf_path):
