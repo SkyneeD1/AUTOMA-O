@@ -336,6 +336,27 @@ def preencher_autocomplete_por_rotulo(rotulo: str, valor: str, tempo_dropdown: f
         return True
     return False
 
+
+def preencher_autocomplete_por_id(input_id: str, valor: str, tempo_dropdown: float = 0.9) -> bool:
+    if not valor:
+        return True
+
+    def _preencher():
+        campo = wait.until(EC.presence_of_element_located((By.ID, input_id)))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
+        campo.clear()
+        time.sleep(0.15)
+        campo.send_keys(valor)
+        time.sleep(tempo_dropdown)
+        campo.send_keys(Keys.DOWN)
+        time.sleep(0.25)
+        campo.send_keys(Keys.ENTER)
+        time.sleep(0.4)
+
+    if attempt_twice(f"Preencher autocomplete {input_id} com {valor}", _preencher):
+        return True
+    return False
+
 def colorir_linhas_amarelo_no_excel(excel_path, linhas_idx, header_rows=1):
     try:
         wb = load_workbook(excel_path)
@@ -774,14 +795,27 @@ try:
                 attempt_twice("Preencher Valor da Causa", preencher_input,
                               "j_id_4c_1:amountCase_input", valor_causa)
 
-            # Advogado responsável
+            # Advogado responsável (autocomplete + selectOneMenu)
             if adv_resp:
-                attempt_twice("Selecionar Advogado Responsável", selecionar_primefaces,
-                              "j_id_4c_1:comboAdvogadoResponsavelProcesso_label", adv_resp)
+                adv_resp_input_id = "j_id_4c_1:autoCompleteLawyer_input"
+                if not preencher_autocomplete_por_id(adv_resp_input_id, adv_resp):
+                    print("⚠️ Autocomplete de Advogado Responsável não retornou resultados válidos.")
+                else:
+                    attempt_twice(
+                        "Selecionar Advogado Responsável",
+                        selecionar_primefaces,
+                        "j_id_4c_1:comboAdvogadoResponsavelProcesso_label",
+                        adv_resp,
+                    )
 
-            # Gestor Jurídico
-            if gestor_juridico and not preencher_autocomplete_por_rotulo("Gestor Jurídico", gestor_juridico):
-                print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
+            # Gestor Jurídico (autocomplete específico)
+            if gestor_juridico:
+                gestor_input_id = (
+                    "j_id_4c_1:j_id_4c_5_2_2_l_9_45_2:j_id_4c_5_2_2_l_9_45_3_1_2_2_1_1:"
+                    "j_id_4c_5_2_2_l_9_45_3_1_2_2_1_2g_input"
+                )
+                if not preencher_autocomplete_por_id(gestor_input_id, gestor_juridico):
+                    print("⚠️ Campo 'Gestor Jurídico' não foi atualizado automaticamente.")
 
             # Escritório Externo (campo dedicado)
             if escritorio_ext and not preencher_autocomplete_por_rotulo("Escritório Externo", escritorio_ext):
